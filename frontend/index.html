@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .hidden { display: none; }
+        button { margin: 5px; padding: 8px 16px; cursor: pointer; }
+        input { margin: 5px; padding: 8px; width: 200px; }
+        .task { border: 1px solid #ccc; padding: 10px; margin: 5px; border-radius: 4px; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div id="loginForm">
+        <h2>Вход</h2>
+        <input type="email" id="email" placeholder="Логин">
+        <input type="password" id="password" placeholder="Пароль">
+        <button onclick="login()">Войти</button>
+        <button onclick="register()">Создать профиль</button>
+        <p class="error" id="loginError"></p>
+    </div>
+    <div id="app" class="hidden">
+        <h2>Task Manager</h2>
+        <span id="userInfo"></span>
+        <button onclick="logout()">Выйти</button>
+        <div id="adminPanel" class="hidden">
+            <h3>Создать задачу</h3>
+            <input type="text" id="taskTitle" placeholder="Название">
+            <input type="text" id="taskDesc" placeholder="Описание">
+            <button onclick="createTask()">Создать</button>
+        </div>
+
+        <h3>Задачи</h3>
+        <button onclick="loadTasks()">Обновить</button>
+        <div id="taskList"></div>
+    </div>
+    <script>
+const API = "http://localhost:8080"
+let token = localStorage.getItem("token")
+let role = localStorage.getItem("role")
+
+if (token) showApp()
+
+function getHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    }
+}
+
+async function login() {
+    const email = document.getElementById("email").value 
+    const password = document.getElementById("password").value
+    try {
+        const res = await fetch(`${API}/auth/login`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email, password})
+        })
+
+        if (!res.ok) {
+            document.getElementById('loginError').textContent =
+                res.status === 401 ? 'Неверный email или пароль' : 'Ошибка сервера'
+            return
+        }
+
+        const data = await res.json()
+        token = data.token
+        role = data.role
+
+        localStorage.setItem('token', token)
+        localStorage.setItem('role', role)
+
+        showApp()
+    } catch (e) {
+        document.getElementById('loginError').textContent = 'Ошибка подключения'
+    }
+}
+
+async function register() {
+    const email = document.getElementById("email").value 
+    const password = document.getElementById("password").value
+    try {
+       const res = await fetch(`${API}/auth/register`, {
+            method: "POST",
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email, password})
+       }) 
+
+       if (!res.ok) {
+            document.getElementById('loginError').textContent =
+                res.status === 400 ? 'Неверные данные' : 'Ошибка при создании профиля'
+            return
+        }
+
+        const data = await res.json()
+        token = data.token
+        role = data.role
+
+        localStorage.setItem('token', token)
+        localStorage.setItem('role', role)
+
+        showApp()
+    } catch (e) {
+        document.getElementById('loginError').textContent = 'Ошибка подключения'
+    }
+}
+
+function logout() {
+    localStorage.removeItem("token")
+    localStorage.removeItem("role")
+    token = null
+    role = null 
+
+    document.getElementById("app").classList.add("hidden")
+    document.getElementById("loginForm").classList.remove("hidden")
+}
+
+function showApp() {
+    document.getElementById('loginForm').classList.add('hidden')
+    document.getElementById('app').classList.remove('hidden')
+    document.getElementById('userInfo').textContent = `Роль: ${role}`
+
+    if (role === 'admin') {
+        document.getElementById('adminPanel').classList.remove('hidden')
+    }
+    loadTasks()
+}
+
+async function loadUsers() {
+    try {
+        const res = await fetch(`${API}/admin/users`, { headers: getHeaders() })
+        if (!res.ok) {
+            if (res.status === 403) {
+               
+            } else {
+                alert('Ошибка получения пользователей')
+            }
+            return []
+        }
+        return await res.json()
+    } catch (e) {
+        alert('Сетевая ошибка при получении пользователей')
+        return []
+    }
+}
+
+async function loadTasks() {
+    try {
+        const res = await fetch(`${API}/tasks`, { headers: getHeaders() })
+        if (!res.ok) {
+            if (res.status === 403) {
+                alert('Нет доступа к задачам')
+            } else {
+                alert('Ошибка получения задач')
+            }
+            return
+        }
+        const tasks = await res.json()
+        const users = await loadUsers() 
+        const list = document.getElementById('taskList') 
+
+        list.innerHTML = tasks.map(task => `
+            <div class="task">
+                <b>${task.title}</b> — ${task.status}
+                <br>Назначена: ${task.assigned_to !== null ? task.assigned_to : 'никому'}
+
+                ${role === 'admin' ? `
+                    <br>
+                    <select id="assignUser_${task.id}">
+                        ${users.map(u => `<option value="${u.id}">${u.email || "ID:"+u.id}</option>`).join("")}
+                    </select>
+                    <button onclick="assignTask(${task.id})">Назначить</button>
+                    <button onclick="deleteTask(${task.id})">Удалить</button>
+                ` : `
+                    <button onclick="updateStatus(${task.id}, 'in_progress')">В работу</button>
+                    <button onclick="updateStatus(${task.id}, 'done')">Готово</button>
+                `}
+            </div>
+        `).join('')
+    } catch (e) {
+        alert('Сетевая ошибка при загрузке задач')
+    }
+}
+
+async function createTask() {
+    const title = document.getElementById('taskTitle').value
+    const desc = document.getElementById('taskDesc').value
+    try {
+        const res = await fetch(`${API}/admin/task`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ title, description: desc, status: "new" })
+        })
+        if (!res.ok) {
+            alert(res.status === 403 ? 'Нет доступа для создания задачи' : 'Ошибка создания задачи')
+            return
+        }
+        loadTasks()
+    } catch (e) {
+        alert('Сетевая ошибка при создании задачи')
+    }
+}
+
+async function assignTask(taskID) {
+    const userID = document.getElementById(`assignUser_${taskID}`).value
+    try {
+        const res = await fetch(`${API}/admin/assign`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify({ taskID: taskID, userID: parseInt(userID) })
+        })
+        if (!res.ok) {
+            alert(res.status === 403 ? 'Нет доступа для назначения' : 'Ошибка назначения задачи')
+            return
+        }
+        loadTasks()
+    } catch (e) {
+        alert('Сетевая ошибка при назначении задачи')
+    }
+}
+
+async function updateStatus(taskID, status) {
+    try {
+        const res = await fetch(`${API}/task/${taskID}`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify({ status })
+        })
+        if (!res.ok) {
+            alert(res.status === 403 ? 'Нет доступа для изменения статуса' : 'Ошибка изменения статуса')
+            return
+        }
+        loadTasks()
+    } catch (e) {
+        alert('Сетевая ошибка при обновлении статуса')
+    }
+}
+
+async function deleteTask(taskID) {
+    try {
+        const res = await fetch(`${API}/admin/task/${taskID}`, {
+            method: 'DELETE',
+            headers: getHeaders()
+        })
+        if (!res.ok) {
+            alert(res.status === 403 ? 'Нет доступа для удаления' : 'Ошибка удаления задачи')
+            return
+        }
+        loadTasks()
+    } catch (e) {
+        alert('Сетевая ошибка при удалении задачи')
+    }
+}
+</script>
+</body>
+</html>

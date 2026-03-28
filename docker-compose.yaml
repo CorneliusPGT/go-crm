@@ -1,0 +1,40 @@
+
+
+services:
+  db:
+    image: postgres:16
+    container_name: crm_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: crm
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  app:
+    build: ./backend
+    container_name: crm_app
+    restart: always
+    depends_on:
+      - db
+    env_file:
+      - ./backend/conf.env
+    environment:
+      POSTGRES_DSN: "postgres://postgres:postgres@db:5432/crm?sslmode=disable"
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    container_name: crm_frontend
+    restart: always
+    ports:
+      - "3000:80" 
+    depends_on:
+      - app
+
+volumes:
+  db_data:
